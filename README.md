@@ -13,6 +13,7 @@ A powerful CLI tool to create and manage multiple AWS API Gateways across multip
 - 🎯 **Bulk Creation**: Create multiple APIs across accounts and regions in one run
 - 🔍 **Role Discovery**: Automatically discover and test assumable IAM roles
 - 📊 **Progress Bars**: Visual progress indicators for long-running operations
+- 🔄 **Retry Mechanism**: Automatic handling of rate limiting (429 errors) with Retry-After header extraction
 
 ## Installation
 
@@ -174,6 +175,9 @@ api-spawner bulk-create --mode configured --account-aliases "prod,staging,dev" -
 - `--parallel`: Create API Gateways in parallel (faster but more resource intensive)
 - `-m, --mode <mode>`: Mode: "discovery" (find roles by pattern) or "configured" (use pre-configured accounts)
 - `--account-aliases <aliases>`: Comma-separated list of configured account aliases to use (for configured mode)
+- `--max-retries <number>`: Maximum number of retries for failed operations (default: 5)
+- `--retry-delay <number>`: Base delay in milliseconds for retries (default: 1000)
+- `--max-retry-delay <number>`: Maximum delay in milliseconds for retries (default: 30000)
 
 ### `bulk-delete`
 
@@ -213,6 +217,9 @@ api-spawner bulk-delete --mode configured --account-aliases "prod,staging" --pat
 - `--dry-run`: Show what would be deleted without actually deleting
 - `-m, --mode <mode>`: Mode: "discovery" (find roles by pattern) or "configured" (use pre-configured accounts)
 - `--account-aliases <aliases>`: Comma-separated list of configured account aliases to use (for configured mode)
+- `--max-retries <number>`: Maximum number of retries for failed operations (default: 5)
+- `--retry-delay <number>`: Base delay in milliseconds for retries (default: 1000)
+- `--max-retry-delay <number>`: Maximum delay in milliseconds for retries (default: 30000)
 
 ### `list`
 
@@ -321,6 +328,46 @@ api-spawner delete --id "abc123def" --force
 2. **Target Account Roles**: Ensure target accounts have IAM roles with API Gateway permissions and trust policies allowing assumption from your source account.
 
 3. **Local AWS Credentials**: Ensure you have AWS credentials configured locally (AWS CLI, environment variables, or IAM roles).
+
+## Retry Mechanism
+
+The API Spawner includes a robust retry mechanism that automatically handles rate limiting (429 errors) and other transient failures:
+
+### Features
+- **Automatic Retry-After Header Extraction**: Respects AWS's recommended wait time from 429 responses
+- **Exponential Backoff with Jitter**: Prevents thundering herd with intelligent backoff
+- **Configurable Retry Settings**: Customize retry attempts, delays, and timeouts
+- **Comprehensive Error Handling**: Handles 429, 500, 502, 503, 504, and network errors
+
+### Usage Examples
+```bash
+# Basic usage with default retry settings
+api-spawner bulk-create --name "my-api" --total-gateways 100
+
+# Custom retry configuration for high-volume operations
+api-spawner bulk-create \
+  --name "high-volume-api" \
+  --total-gateways 500 \
+  --parallel \
+  --max-retries 10 \
+  --retry-delay 2000 \
+  --max-retry-delay 60000
+
+# Bulk delete with aggressive retry settings
+api-spawner bulk-delete \
+  --pattern "my-api-*" \
+  --max-retries 8 \
+  --retry-delay 1500 \
+  --max-retry-delay 45000
+```
+
+### Retry Behavior
+- **429 Errors**: Extracts `Retry-After` header and waits accordingly
+- **Other Errors**: Uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s max)
+- **Jitter**: Adds ±10% random variation to prevent synchronized retries
+- **Logging**: Shows retry attempts, wait times, and final status
+
+For detailed information, see [examples/retry-mechanism.md](examples/retry-mechanism.md).
 
 ## Development
 

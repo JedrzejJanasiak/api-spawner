@@ -19,6 +19,9 @@ export interface BulkDeleteOptions {
   dryRun?: boolean;
   mode?: 'discovery' | 'configured';
   accountAliases?: string | string[];
+  maxRetries?: number;
+  retryDelay?: number;
+  maxRetryDelay?: number;
 }
 
 export const bulkDeleteCommand = new Command('bulk-delete')
@@ -34,6 +37,9 @@ export const bulkDeleteCommand = new Command('bulk-delete')
   .option('--dry-run', 'Show what would be deleted without actually deleting')
   .option('-m, --mode <mode>', 'Mode: "discovery" (find roles by pattern) or "configured" (use pre-configured accounts)')
   .option('--account-aliases <aliases>', 'Comma-separated list of configured account aliases to use (for configured mode)')
+  .option('--max-retries <number>', 'Maximum number of retries for failed operations (default: 5)')
+  .option('--retry-delay <number>', 'Base delay in milliseconds for retries (default: 1000)')
+  .option('--max-retry-delay <number>', 'Maximum delay in milliseconds for retries (default: 30000)')
   .action(async (options: BulkDeleteOptions) => {
     try {
       console.log(chalk.blue('🗑️  Bulk API Gateway Deletion'));
@@ -115,6 +121,27 @@ export const bulkDeleteCommand = new Command('bulk-delete')
           message: 'Dry run mode? (show what would be deleted without actually deleting)',
           default: true,
           when: !options.dryRun && !options.force
+        },
+        {
+          type: 'number',
+          name: 'maxRetries',
+          message: 'Maximum number of retries for failed operations:',
+          default: 5,
+          when: !options.maxRetries
+        },
+        {
+          type: 'number',
+          name: 'retryDelay',
+          message: 'Base delay in milliseconds for retries:',
+          default: 1000,
+          when: !options.retryDelay
+        },
+        {
+          type: 'number',
+          name: 'maxRetryDelay',
+          message: 'Maximum delay in milliseconds for retries:',
+          default: 30000,
+          when: !options.maxRetryDelay
         }
       ]);
 
@@ -128,7 +155,10 @@ export const bulkDeleteCommand = new Command('bulk-delete')
         parallel: options.parallel !== undefined ? options.parallel : answers.parallel,
         force: options.force || false,
         dryRun: options.dryRun !== undefined ? options.dryRun : answers.dryRun,
-        mode: options.mode || answers.mode || 'discovery'
+        mode: options.mode || answers.mode || 'discovery',
+        maxRetries: options.maxRetries || answers.maxRetries || 5,
+        retryDelay: options.retryDelay || answers.retryDelay || 1000,
+        maxRetryDelay: options.maxRetryDelay || answers.maxRetryDelay || 30000
       };
 
       console.log(chalk.blue(`Mode: ${finalOptions.mode}`));
@@ -341,6 +371,14 @@ export const bulkDeleteCommand = new Command('bulk-delete')
       const results: any[] = [];
       const errors: any[] = [];
 
+      // Configure retry options
+      const retryOptions = {
+        maxRetries: finalOptions.maxRetries,
+        baseDelay: finalOptions.retryDelay,
+        maxDelay: finalOptions.maxRetryDelay,
+        jitter: true
+      };
+
       if (finalOptions.parallel) {
         // Parallel deletion with progress bar
         const progressBar = new ProgressBar(apisToDelete.length, { 
@@ -363,7 +401,7 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             };
 
             const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id);
+            await apiManager.deleteApiGateway(api.id, { retryOptions });
 
             progressBar.increment(`Deleted ${api.name}`);
             return { success: true, api };
@@ -409,7 +447,7 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             };
 
             const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id);
+            await apiManager.deleteApiGateway(api.id, { retryOptions });
 
             results.push(api);
             progressBar.increment(`Deleted ${api.name}`);

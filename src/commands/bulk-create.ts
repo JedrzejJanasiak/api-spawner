@@ -18,6 +18,9 @@ export interface BulkCreateOptions {
   totalGateways?: number;
   mode?: 'discovery' | 'configured';
   accountAliases?: string | string[];
+  maxRetries?: number;
+  retryDelay?: number;
+  maxRetryDelay?: number;
 }
 
 export interface BulkCreateTarget {
@@ -40,6 +43,9 @@ export const bulkCreateCommand = new Command('bulk-create')
   .option('-t, --total-gateways <number>', 'Total number of API Gateways to create across all regions')
   .option('-m, --mode <mode>', 'Mode: "discovery" (find roles by pattern) or "configured" (use pre-configured accounts)')
   .option('--account-aliases <aliases>', 'Comma-separated list of configured account aliases to use (for configured mode)')
+  .option('--max-retries <number>', 'Maximum number of retries for failed operations (default: 5)')
+  .option('--retry-delay <number>', 'Base delay in milliseconds for retries (default: 1000)')
+  .option('--max-retry-delay <number>', 'Maximum delay in milliseconds for retries (default: 30000)')
   .action(async (options: BulkCreateOptions) => {
     try {
       console.log(chalk.blue('🚀 Bulk API Gateway Creation'));
@@ -119,18 +125,43 @@ export const bulkCreateCommand = new Command('bulk-create')
           message: 'Create API Gateways in parallel? (faster but more resource intensive)',
           default: false,
           when: options.parallel === undefined
+        },
+        {
+          type: 'number',
+          name: 'maxRetries',
+          message: 'Maximum number of retries for failed operations:',
+          default: 5,
+          when: !options.maxRetries
+        },
+        {
+          type: 'number',
+          name: 'retryDelay',
+          message: 'Base delay in milliseconds for retries:',
+          default: 1000,
+          when: !options.retryDelay
+        },
+        {
+          type: 'number',
+          name: 'maxRetryDelay',
+          message: 'Maximum delay in milliseconds for retries:',
+          default: 30000,
+          when: !options.maxRetryDelay
         }
       ]);
 
       const finalOptions = {
         name: options.name || answers.name,
-        description: options.description || answers.description || '',
+        description: options.description || answers.description,
         regions: options.regions ? (typeof options.regions === 'string' ? options.regions.split(',') : options.regions) : answers.regions,
+        accounts: options.accounts,
         rolePattern: options.rolePattern || answers.rolePattern,
         externalId: options.externalId || answers.externalId,
         totalGateways: options.totalGateways || answers.totalGateways,
         parallel: options.parallel !== undefined ? options.parallel : answers.parallel,
-        mode: options.mode || answers.mode || 'discovery'
+        mode: options.mode || answers.mode || 'discovery',
+        maxRetries: options.maxRetries || answers.maxRetries || 5,
+        retryDelay: options.retryDelay || answers.retryDelay || 1000,
+        maxRetryDelay: options.maxRetryDelay || answers.maxRetryDelay || 30000
       };
 
       // Calculate distribution
@@ -296,9 +327,16 @@ export const bulkCreateCommand = new Command('bulk-create')
       }
 
       // Create API Gateways
-      const createSpinnerInstance = createSpinner('Creating API Gateways...').start();
       const results: any[] = [];
       const errors: any[] = [];
+
+      // Configure retry options
+      const retryOptions = {
+        maxRetries: finalOptions.maxRetries,
+        baseDelay: finalOptions.retryDelay,
+        maxDelay: finalOptions.maxRetryDelay,
+        jitter: true
+      };
 
       if (finalOptions.parallel) {
         // Parallel creation with progress bar
@@ -328,7 +366,8 @@ export const bulkCreateCommand = new Command('bulk-create')
               name: apiName,
               region: target.region,
               account: target.accountId,
-              description: finalOptions.description
+              description: finalOptions.description,
+              retryOptions
             });
 
             progressBar.increment(`Created ${apiName}`);
@@ -381,7 +420,8 @@ export const bulkCreateCommand = new Command('bulk-create')
               name: apiName,
               region: target.region,
               account: target.accountId,
-              description: finalOptions.description
+              description: finalOptions.description,
+              retryOptions
             });
 
             results.push(result);

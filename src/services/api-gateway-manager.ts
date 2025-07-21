@@ -2,12 +2,14 @@ import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { APIGatewayClient, CreateRestApiCommand, GetRestApisCommand, DeleteRestApiCommand } from '@aws-sdk/client-api-gateway';
 import { fromTemporaryCredentials } from '@aws-sdk/credential-providers';
 import { AppConfig, AccountConfig } from './config-manager';
+import { RetryManager, RetryOptions } from '../utils/retry';
 
 export interface CreateApiOptions {
   name: string;
   region: string;
   account: string;
   description?: string;
+  retryOptions?: RetryOptions;
 }
 
 export interface ApiGatewayInfo {
@@ -23,6 +25,11 @@ export interface ApiGatewayInfo {
 export interface ListApiOptions {
   account?: string;
   region?: string | string[];
+  retryOptions?: RetryOptions;
+}
+
+export interface DeleteApiOptions {
+  retryOptions?: RetryOptions;
 }
 
 export class ApiGatewayManager {
@@ -78,28 +85,51 @@ export class ApiGatewayManager {
     const credentials = await this.getCredentials(options.account);
     const client = this.createApiGatewayClient(credentials, options.region);
 
-    const command = new CreateRestApiCommand({
-      name: options.name,
-      description: options.description,
+    const createOperation = async () => {
+      const command = new CreateRestApiCommand({
+        name: options.name,
+        description: options.description,
+      });
+
+      const response = await client.send(command);
+
+      if (!response.id || !response.name) {
+        throw new Error('Failed to create API Gateway - invalid response');
+      }
+
+      const apiUrl = `https://${response.id}.execute-api.${options.region}.amazonaws.com/stage`;
+
+      return {
+        id: response.id,
+        name: response.name,
+        description: response.description,
+        url: apiUrl,
+        createdDate: response.createdDate || new Date(),
+        account: options.account,
+        region: options.region,
+      };
+    };
+
+    const retryResult = await RetryManager.retry(createOperation, {
+      maxRetries: 5,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      jitter: true,
+      onRetry: (attempt, error, delay) => {
+        const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                          error.$metadata?.httpHeaders?.['Retry-After'];
+        const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+        console.log(`⚠️  Create API Gateway failed (attempt ${attempt}/6): ${error.message || error}`);
+        console.log(`   Waiting ${delayInfo} before retry...`);
+      },
+      ...options.retryOptions
     });
 
-    const response = await client.send(command);
-
-    if (!response.id || !response.name) {
-      throw new Error('Failed to create API Gateway - invalid response');
+    if (!retryResult.success) {
+      throw retryResult.error;
     }
 
-    const apiUrl = `https://${response.id}.execute-api.${options.region}.amazonaws.com/stage`;
-
-    return {
-      id: response.id,
-      name: response.name,
-      description: response.description,
-      url: apiUrl,
-      createdDate: response.createdDate || new Date(),
-      account: options.account,
-      region: options.region,
-    };
+    return retryResult.result!;
   }
 
   async listApiGateways(options: ListApiOptions = {}): Promise<ApiGatewayInfo[]> {
@@ -129,22 +159,46 @@ export class ApiGatewayManager {
         
         for (const region of regions) {
           try {
-            const client = this.createApiGatewayClient(credentials, region);
-            const command = new GetRestApisCommand({});
-            const response = await client.send(command);
+            const listOperation = async () => {
+              const client = this.createApiGatewayClient(credentials, region);
+              const command = new GetRestApisCommand({});
+              const response = await client.send(command);
 
-            if (response.items) {
-              const apis = response.items.map(item => ({
-                id: item.id!,
-                name: item.name!,
-                description: item.description,
-                url: `https://${item.id}.execute-api.${region}.amazonaws.com/stage`,
-                createdDate: item.createdDate || new Date(),
-                account,
-                region,
-              }));
+              if (response.items) {
+                const apis = response.items.map(item => ({
+                  id: item.id!,
+                  name: item.name!,
+                  description: item.description,
+                  url: `https://${item.id}.execute-api.${region}.amazonaws.com/stage`,
+                  createdDate: item.createdDate || new Date(),
+                  account,
+                  region,
+                }));
 
-              allApis.push(...apis);
+                return apis;
+              }
+              return [];
+            };
+
+            const retryResult = await RetryManager.retry(listOperation, {
+              maxRetries: 3,
+              baseDelay: 500,
+              maxDelay: 10000,
+              jitter: true,
+              onRetry: (attempt, error, delay) => {
+                const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                  error.$metadata?.httpHeaders?.['Retry-After'];
+                const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                console.log(`⚠️  List APIs in ${account}/${region} failed (attempt ${attempt}/4): ${error.message || error}`);
+                console.log(`   Waiting ${delayInfo} before retry...`);
+              },
+              ...options.retryOptions
+            });
+
+            if (retryResult.success) {
+              allApis.push(...retryResult.result!);
+            } else {
+              console.warn(`Failed to list APIs in ${account}/${region} after retries:`, retryResult.error);
             }
           } catch (error) {
             console.warn(`Failed to list APIs in ${account}/${region}:`, error);
@@ -158,7 +212,7 @@ export class ApiGatewayManager {
     return allApis;
   }
 
-  async deleteApiGateway(apiId: string): Promise<void> {
+  async deleteApiGateway(apiId: string, options: DeleteApiOptions = {}): Promise<void> {
     // First, find the API to get its region and account
     const apis = await this.listApiGateways();
     const api = apis.find(a => a.id === apiId);
@@ -170,10 +224,31 @@ export class ApiGatewayManager {
     const credentials = await this.getCredentials(api.account);
     const client = this.createApiGatewayClient(credentials, api.region);
 
-    const command = new DeleteRestApiCommand({
-      restApiId: apiId,
+    const deleteOperation = async () => {
+      const command = new DeleteRestApiCommand({
+        restApiId: apiId,
+      });
+
+      await client.send(command);
+    };
+
+    const retryResult = await RetryManager.retry(deleteOperation, {
+      maxRetries: 5,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      jitter: true,
+      onRetry: (attempt, error, delay) => {
+        const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                          error.$metadata?.httpHeaders?.['Retry-After'];
+        const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+        console.log(`⚠️  Delete API Gateway failed (attempt ${attempt}/6): ${error.message || error}`);
+        console.log(`   Waiting ${delayInfo} before retry...`);
+      },
+      ...options.retryOptions
     });
 
-    await client.send(command);
+    if (!retryResult.success) {
+      throw retryResult.error;
+    }
   }
 } 
