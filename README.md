@@ -4,17 +4,16 @@ A powerful CLI tool to create and manage multiple AWS API Gateways across multip
 
 ## Features
 
-- 🚀 **Multi-Account Support**: Manage API Gateways across multiple AWS accounts
-- 🌍 **Multi-Region Support**: Deploy APIs in different AWS regions
-- 🔐 **STS AssumeRole**: Secure cross-account access using IAM roles
-- 📝 **Interactive CLI**: User-friendly prompts and commands
-- ⚡ **Fast Operations**: Efficient AWS SDK v3 integration
-- 🔧 **Easy Configuration**: Simple YAML-based configuration
-- 🎯 **Bulk Creation**: Create multiple APIs across accounts and regions in one run
-- 🔍 **Role Discovery**: Automatically discover and test assumable IAM roles
-- 📊 **Progress Bars**: Visual progress indicators for long-running operations
-- 🔄 **Retry Mechanism**: Automatic handling of rate limiting (429 errors) with Retry-After header extraction
-- 📋 **Version Management**: Comprehensive versioning system with build information and environment detection
+- 🚀 **Create API Gateways** across multiple AWS accounts and regions
+- 📋 **List and manage** existing API Gateways with filtering options
+- 🗑️ **Bulk delete** API Gateways with pattern matching and confirmation
+- 🔧 **Cross-account access** via STS AssumeRole
+- 🎯 **Role discovery** to automatically find assumable roles
+- ⚡ **Parallel operations** for faster bulk processing
+- 🔄 **Retry mechanism** with exponential backoff and AWS rate limit handling
+- 📊 **Progress tracking** with real-time status updates
+- 🎛️ **Version management** with detailed build information
+- 🧠 **Adaptive rate limiting** that learns from AWS rate limit responses
 
 ## Installation
 
@@ -332,44 +331,54 @@ api-spawner delete --id "abc123def" --force
 
 ## Retry Mechanism
 
-The API Spawner includes a robust retry mechanism that automatically handles rate limiting (429 errors) and other transient failures:
+The tool includes a robust retry mechanism that handles AWS rate limiting and transient errors:
 
 ### Features
-- **Automatic Retry-After Header Extraction**: Respects AWS's recommended wait time from 429 responses
-- **Exponential Backoff with Jitter**: Prevents thundering herd with intelligent backoff
-- **Configurable Retry Settings**: Customize retry attempts, delays, and timeouts
-- **Comprehensive Error Handling**: Handles 429, 500, 502, 503, 504, and network errors
+- **Exponential backoff** with jitter to prevent thundering herd
+- **Retry-After header extraction** from AWS 429 responses
+- **AWS-specific rate limit headers** (`x-amzn-RateLimit-*`)
+- **Operation-specific strategies** (create, delete, list)
+- **Adaptive learning** that remembers rate limit events
 
-### Usage Examples
+### Usage
 ```bash
-# Basic usage with default retry settings
-api-spawner bulk-create --name "my-api" --total-gateways 100
+# Default retry settings work for most cases
+api-spawner bulk-create --total-gateways 10
 
-# Custom retry configuration for high-volume operations
-api-spawner bulk-create \
-  --name "high-volume-api" \
-  --total-gateways 500 \
-  --parallel \
-  --max-retries 10 \
-  --retry-delay 2000 \
-  --max-retry-delay 60000
-
-# Bulk delete with aggressive retry settings
-api-spawner bulk-delete \
-  --pattern "my-api-*" \
-  --max-retries 8 \
-  --retry-delay 1500 \
-  --max-retry-delay 45000
+# Custom retry settings for strict environments
+api-spawner bulk-delete --pattern "api-*" \
+  --max-retries 15 \
+  --retry-delay 5000 \
+  --max-retry-delay 300000
 ```
 
-### Retry Behavior
-- **429 Errors**: Extracts `Retry-After` header and waits accordingly
-- **Other Errors**: Uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s max)
-- **Jitter**: Adds ±10% random variation to prevent synchronized retries
-- **Integrated Display**: Retry information shown within progress bar status for clean output
-- **Optimized for Operations**: Enhanced retry settings for delete operations (8 retries, 2s base delay)
+### Behavior
+- **Create operations**: 5 retries, 1s base delay, 30s max delay
+- **Delete operations**: 10 retries, 2s base delay, 120s max delay  
+- **List operations**: 3 retries, 0.5s base delay, 15s max delay
 
-For detailed information, see [examples/retry-mechanism.md](examples/retry-mechanism.md).
+## Enhanced Rate Limiting
+
+The tool now includes advanced rate limiting specifically designed for AWS API Gateway operations:
+
+### Key Improvements
+- **AWS SDK v3 Integration**: Uses built-in `adaptive` retry mode
+- **Adaptive Rate Limiter**: Learns from rate limit responses and adjusts delays
+- **Conservative Delete Strategy**: Special handling for delete operations (strictest limits)
+- **Account/Region Tracking**: Tracks rate limits per account and region combination
+
+### Rate Limit Statistics
+After bulk operations, the system displays statistics:
+```
+📊 Rate Limit Statistics:
+  • Total rate limits hit: 3
+  • Average suggested delay: 45s
+```
+
+### Best Practices
+- **Production**: Use sequential mode for critical operations
+- **Development**: Parallel mode works well for most cases
+- **Large Scale**: Consider off-peak hours and multiple accounts
 
 ## Performance Optimizations
 
@@ -468,10 +477,20 @@ The tool is built with:
 
 MIT License - see LICENSE file for details.
 
-### Recent Updates (v1.0.0)
-- Enhanced retry mechanism with Retry-After header extraction
-- Performance optimizations for bulk-delete operations
-- Single progress bar with integrated retry information
-- Improved error handling and user experience
-- Version management system
-- Fixed distribution logic for multi-account bulk operations
+## Recent Updates
+
+### v1.0.0 - Enhanced Rate Limiting & Performance
+- 🧠 **Adaptive Rate Limiter**: New learning system that remembers rate limit events and adjusts delays
+- 🔧 **AWS SDK v3 Integration**: Enhanced client configuration with adaptive retry mode
+- 📊 **Rate Limit Statistics**: Display rate limit statistics after bulk operations
+- 🗑️ **Conservative Delete Strategy**: Special handling for delete operations with stricter limits
+- 🔍 **Enhanced Header Support**: Full support for `x-amzn-RateLimit-*` headers
+- ⚡ **Operation-Specific Delays**: Different strategies for create, delete, and list operations
+- 📈 **Performance Improvements**: Reduced batch sizes and adaptive delays for better reliability
+
+### v0.9.0 - Retry Mechanism & Versioning
+- 🔄 **Retry Mechanism**: Comprehensive retry strategy with exponential backoff and Retry-After header extraction
+- 📊 **Progress Bar Integration**: Clean retry status display within progress bars
+- 🎛️ **Version Management**: Complete versioning system with build information
+- 🚀 **Performance Optimizations**: Eliminated redundant API calls and improved batching
+- 🔧 **Distribution Fix**: Fixed multi-account distribution logic for bulk-create operations

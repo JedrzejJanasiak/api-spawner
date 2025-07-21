@@ -129,23 +129,32 @@ export const bulkCreateCommand = new Command('bulk-create')
         {
           type: 'number',
           name: 'maxRetries',
-          message: 'Maximum number of retries for failed operations:',
+          message: 'Maximum number of retries for failed operations (adaptive system will use 5 for creates):',
           default: 5,
-          when: !options.maxRetries
+          validate: (input: number) => {
+            if (input < 1 || input > 20) return 'Retries must be between 1 and 20';
+            return true;
+          }
         },
         {
           type: 'number',
           name: 'retryDelay',
-          message: 'Base delay in milliseconds for retries:',
+          message: 'Base delay in milliseconds for retries (adaptive system will adjust based on rate limits):',
           default: 1000,
-          when: !options.retryDelay
+          validate: (input: number) => {
+            if (input < 100 || input > 10000) return 'Delay must be between 100 and 10000ms';
+            return true;
+          }
         },
         {
           type: 'number',
           name: 'maxRetryDelay',
-          message: 'Maximum delay in milliseconds for retries:',
+          message: 'Maximum delay in milliseconds for retries (adaptive system will use 30000ms for creates):',
           default: 30000,
-          when: !options.maxRetryDelay
+          validate: (input: number) => {
+            if (input < 1000 || input > 600000) return 'Max delay must be between 1000 and 600000ms';
+            return true;
+          }
         }
       ]);
 

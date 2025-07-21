@@ -49,6 +49,31 @@ export class RetryManager {
   }
 
   /**
+   * Extracts AWS API Gateway specific rate limit headers
+   */
+  private static extractAwsRateLimitHeaders(error: any): { retryAfter?: number; rateLimit?: number } {
+    try {
+      const headers = error.$metadata?.httpHeaders || {};
+      
+      // Check for AWS API Gateway specific rate limit headers
+      const retryAfter = headers['x-amzn-ratelimit-retry-after'] || 
+                        headers['x-amzn-ratelimit-retryafter'] ||
+                        headers['retry-after'] || 
+                        headers['Retry-After'];
+      
+      const rateLimit = headers['x-amzn-ratelimit-limit'] || 
+                       headers['x-amzn-ratelimit-remaining'];
+      
+      return {
+        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
+        rateLimit: rateLimit ? parseInt(rateLimit, 10) : undefined
+      };
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /**
    * Calculate exponential backoff delay with optional jitter
    */
   private static calculateDelay(attempt: number, baseDelay: number, maxDelay: number, jitter: boolean): number {
@@ -152,6 +177,14 @@ export class RetryManager {
         if (!delay) {
           // Use exponential backoff for other retryable errors
           delay = this.calculateDelay(attempt, opts.baseDelay, opts.maxDelay, opts.jitter);
+        }
+        
+        // For AWS API Gateway operations, also check for specific rate limit headers
+        if (!delay || delay < 1000) { // If no delay or very short delay
+          const awsRateLimit = this.extractAwsRateLimitHeaders(error);
+          if (awsRateLimit.retryAfter && awsRateLimit.retryAfter > delay) {
+            delay = awsRateLimit.retryAfter;
+          }
         }
         
         totalDelay += delay;

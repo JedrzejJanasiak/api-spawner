@@ -6,6 +6,7 @@ import { ApiGatewayManager } from '../services/api-gateway-manager';
 import { RoleDiscoveryService } from '../services/role-discovery';
 import { ConfigManager } from '../services/config-manager';
 import { ProgressBar } from '../utils/progress-bar';
+import { awsRateLimiter } from '../utils/aws-rate-limiter';
 
 export interface BulkDeleteOptions {
   pattern?: string;
@@ -49,99 +50,119 @@ export const bulkDeleteCommand = new Command('bulk-delete')
       const answers = await inquirer.prompt([
         {
           type: 'list',
-          name: 'mode',
-          message: 'Select deployment mode:',
-          choices: [
-            { name: 'Role Discovery Mode - Find assumable roles by pattern', value: 'discovery' },
-            { name: 'Configured Accounts Mode - Use pre-configured accounts', value: 'configured' }
-          ],
-          when: !options.mode
-        },
-        {
-          type: 'list',
           name: 'deleteMode',
-          message: 'How would you like to select API Gateways for deletion?',
+          message: 'How would you like to select API Gateways to delete?',
           choices: [
-            { name: 'By name pattern (e.g., "my-api-*")', value: 'pattern' },
-            { name: 'By base name (e.g., "my-api")', value: 'name' },
-            { name: 'Interactive selection from all API Gateways', value: 'interactive' }
-          ],
-          when: !options.pattern && !options.name
+            { name: 'Pattern matching (e.g., "my-api-*")', value: 'pattern' },
+            { name: 'Base name matching (e.g., "my-api")', value: 'name' },
+            { name: 'Interactive selection', value: 'interactive' }
+          ]
         },
         {
           type: 'input',
           name: 'pattern',
-          message: 'Enter pattern to match API Gateway names (e.g., "my-api-*", "test-api-123456789012-*"):',
-          when: (answers) => answers.deleteMode === 'pattern' && !options.pattern
+          message: 'Enter glob pattern to match API Gateway names:',
+          when: (answers) => answers.deleteMode === 'pattern',
+          validate: (input: string) => {
+            if (!input.trim()) return 'Pattern cannot be empty';
+            return true;
+          }
         },
         {
           type: 'input',
           name: 'name',
-          message: 'Enter base name of APIs to delete (e.g., "my-api"):',
-          when: (answers) => answers.deleteMode === 'name' && !options.name
+          message: 'Enter base name for API Gateways:',
+          when: (answers) => answers.deleteMode === 'name',
+          validate: (input: string) => {
+            if (!input.trim()) return 'Name cannot be empty';
+            return true;
+          }
         },
         {
           type: 'checkbox',
           name: 'regions',
-          message: 'Select AWS regions to search (leave empty for all):',
+          message: 'Select AWS regions to search:',
           choices: [
-            { name: 'US East (N. Virginia) - us-east-1', value: 'us-east-1' },
-            { name: 'US East (Ohio) - us-east-2', value: 'us-east-2' },
-            { name: 'US West (N. California) - us-west-1', value: 'us-west-1' },
-            { name: 'US West (Oregon) - us-west-2', value: 'us-west-2' },
-            { name: 'Europe (Ireland) - eu-west-1', value: 'eu-west-1' },
-            { name: 'Europe (Frankfurt) - eu-central-1', value: 'eu-central-1' },
-            { name: 'Asia Pacific (Singapore) - ap-southeast-1', value: 'ap-southeast-1' },
-            { name: 'Asia Pacific (Tokyo) - ap-northeast-1', value: 'ap-northeast-1' }
+            { name: 'us-east-1 (N. Virginia)', value: 'us-east-1' },
+            { name: 'us-east-2 (Ohio)', value: 'us-east-2' },
+            { name: 'us-west-1 (N. California)', value: 'us-west-1' },
+            { name: 'us-west-2 (Oregon)', value: 'us-west-2' },
+            { name: 'eu-west-1 (Ireland)', value: 'eu-west-1' },
+            { name: 'eu-central-1 (Frankfurt)', value: 'eu-central-1' },
+            { name: 'ap-southeast-1 (Singapore)', value: 'ap-southeast-1' },
+            { name: 'ap-northeast-1 (Tokyo)', value: 'ap-northeast-1' }
           ],
-          when: !options.regions
+          default: ['us-east-1', 'us-west-2']
+        },
+        {
+          type: 'list',
+          name: 'mode',
+          message: 'How would you like to access AWS accounts?',
+          choices: [
+            { name: 'Discover assumable roles in current account', value: 'discovery' },
+            { name: 'Use configured accounts', value: 'configured' }
+          ]
         },
         {
           type: 'input',
           name: 'rolePattern',
-          message: 'Enter role name pattern to match (e.g., "api-deploy"):',
-          when: (answers: any) => (!options.rolePattern && (options.mode || answers.mode) === 'discovery')
+          message: 'Enter role name pattern to search for (e.g., "ApiGatewayRole*"):',
+          when: (answers) => answers.mode === 'discovery',
+          default: 'ApiGatewayRole*'
         },
         {
           type: 'input',
           name: 'externalId',
-          message: 'Enter External ID (optional):',
-          when: !options.externalId
+          message: 'External ID (optional, for enhanced security):',
+          when: (answers) => answers.mode === 'discovery'
         },
         {
           type: 'confirm',
           name: 'parallel',
-          message: 'Delete API Gateways in parallel? (faster but more resource intensive)',
-          default: false,
-          when: options.parallel === undefined
+          message: 'Delete API Gateways in parallel? (faster but may hit rate limits)',
+          default: false
+        },
+        {
+          type: 'confirm',
+          name: 'force',
+          message: 'Skip confirmation and delete immediately?',
+          default: false
         },
         {
           type: 'confirm',
           name: 'dryRun',
-          message: 'Dry run mode? (show what would be deleted without actually deleting)',
-          default: true,
-          when: !options.dryRun && !options.force
+          message: 'Dry run (show what would be deleted without actually deleting)?',
+          default: true
         },
         {
           type: 'number',
           name: 'maxRetries',
-          message: 'Maximum number of retries for failed operations:',
-          default: 5,
-          when: !options.maxRetries
+          message: 'Maximum number of retries for failed operations (adaptive system will use 10 for deletes):',
+          default: 10,
+          validate: (input: number) => {
+            if (input < 1 || input > 20) return 'Retries must be between 1 and 20';
+            return true;
+          }
         },
         {
           type: 'number',
           name: 'retryDelay',
-          message: 'Base delay in milliseconds for retries:',
-          default: 1000,
-          when: !options.retryDelay
+          message: 'Base delay in milliseconds for retries (adaptive system will adjust based on rate limits):',
+          default: 3000,
+          validate: (input: number) => {
+            if (input < 100 || input > 10000) return 'Delay must be between 100 and 10000ms';
+            return true;
+          }
         },
         {
           type: 'number',
           name: 'maxRetryDelay',
-          message: 'Maximum delay in milliseconds for retries:',
-          default: 30000,
-          when: !options.maxRetryDelay
+          message: 'Maximum delay in milliseconds for retries (adaptive system will use 120000ms for deletes):',
+          default: 120000,
+          validate: (input: number) => {
+            if (input < 1000 || input > 600000) return 'Max delay must be between 1000 and 600000ms';
+            return true;
+          }
         }
       ]);
 
@@ -380,14 +401,14 @@ export const bulkDeleteCommand = new Command('bulk-delete')
       };
 
       if (finalOptions.parallel) {
-        // Parallel deletion with progress bar and batching to reduce rate limiting
+        // Parallel deletion with progress bar and conservative batching
         const progressBar = new ProgressBar(apisToDelete.length, { 
           title: 'Deleting API Gateways (Parallel)',
           hideCursor: true 
         });
 
-        // Process in batches to reduce rate limiting
-        const batchSize = 3; // Reduced concurrency for delete operations
+        // Process in smaller batches to reduce rate limiting
+        const batchSize = 2; // Reduced from 3 to 2 for more conservative approach
         const results: any[] = [];
         const errors: any[] = [];
 
@@ -439,9 +460,10 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             }
           });
 
-          // Add delay between batches to reduce rate limiting
+          // Add longer delay between batches for delete operations
           if (i + batchSize < apisToDelete.length) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const adaptiveDelay = awsRateLimiter.getOperationDelay('delete');
+            await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
           }
         }
 
@@ -453,10 +475,7 @@ export const bulkDeleteCommand = new Command('bulk-delete')
           hideCursor: true 
         });
 
-        for (let i = 0; i < apisToDelete.length; i++) {
-          const api = apisToDelete[i];
-          progressBar.setStatus(`Deleting ${api.name} (${i + 1}/${apisToDelete.length})`);
-
+        for (const api of apisToDelete) {
           try {
             // Create temporary config for this API
             const tempConfig = {
@@ -478,43 +497,46 @@ export const bulkDeleteCommand = new Command('bulk-delete')
                   const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
                                     error.$metadata?.httpHeaders?.['Retry-After'];
                   const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-                  progressBar.setStatus(`Retrying delete ${api.name} (${i + 1}/${apisToDelete.length}) - attempt ${attempt}/${retryOptions.maxRetries + 1} - ${delayInfo}`);
+                  progressBar.setStatus(`Retrying delete ${api.name} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
                 }
               }
             });
 
-            results.push(api);
             progressBar.increment(`Deleted ${api.name}`);
-            
-            // Add small delay between delete operations to reduce rate limiting
-            if (i < apisToDelete.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
+            results.push(api);
           } catch (error) {
-            errors.push({ error, api });
             progressBar.increment(`Failed ${api.name}`);
+            errors.push({ error, api });
           }
+
+          // Add adaptive delay between sequential operations
+          const adaptiveDelay = awsRateLimiter.getOperationDelay('delete');
+          await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
         }
 
         progressBar.complete(`Deleted ${results.length} API Gateways successfully`);
       }
 
       // Display results
-      if (results.length > 0) {
-        console.log(chalk.green('\n✅ Successfully Deleted:'));
-        results.forEach(api => {
-          console.log(chalk.cyan(`  ${api.name} (${api.account}/${api.region})`));
-        });
-      }
-
+      console.log(chalk.green(`\n✅ Successfully deleted ${results.length} API Gateway(s)`));
+      
       if (errors.length > 0) {
-        console.log(chalk.red('\n❌ Failed to Delete:'));
+        console.log(chalk.red(`\n❌ Failed to delete ${errors.length} API Gateway(s):`));
         errors.forEach(({ error, api }) => {
-          console.log(chalk.red(`  ${api.name} (${api.account}/${api.region}): ${error.message || error}`));
+          console.log(chalk.red(`  • ${api.name} (${api.account}/${api.region}): ${error.message}`));
         });
       }
 
-      console.log(chalk.blue(`\nSummary: ${results.length} deleted, ${errors.length} failed`));
+      // Display rate limit statistics
+      const stats = awsRateLimiter.getStats();
+      if (stats.totalRateLimits > 0) {
+        console.log(chalk.yellow(`\n📊 Rate Limit Statistics:`));
+        console.log(chalk.yellow(`  • Total rate limits hit: ${stats.totalRateLimits}`));
+        console.log(chalk.yellow(`  • Average suggested delay: ${Math.round(stats.averageDelay / 1000)}s`));
+      }
+
+      // Reset rate limit history for next operation
+      awsRateLimiter.resetHistory();
 
     } catch (error) {
       console.error(chalk.red('Error in bulk deletion:'), error instanceof Error ? error.message : error);

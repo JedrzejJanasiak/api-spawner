@@ -3,6 +3,7 @@ import { APIGatewayClient, CreateRestApiCommand, GetRestApisCommand, DeleteRestA
 import { fromTemporaryCredentials } from '@aws-sdk/credential-providers';
 import { AppConfig, AccountConfig } from './config-manager';
 import { RetryManager, RetryOptions } from '../utils/retry';
+import { awsRateLimiter } from '../utils/aws-rate-limiter';
 
 export interface CreateApiOptions {
   name: string;
@@ -78,6 +79,16 @@ export class ApiGatewayManager {
         secretAccessKey: credentials.secretAccessKey,
         sessionToken: credentials.sessionToken,
       },
+      // Enhanced retry configuration for AWS SDK v3
+      maxAttempts: 3, // Let our custom retry handle the rest
+      retryMode: 'adaptive', // Use adaptive retry mode
+      requestHandler: {
+        // Custom request handler for better rate limit handling
+        httpOptions: {
+          timeout: 30000, // 30 second timeout
+          connectTimeout: 5000, // 5 second connect timeout
+        }
+      }
     });
   }
 
@@ -258,11 +269,15 @@ export class ApiGatewayManager {
       await client.send(command);
     };
 
+    // Use adaptive rate limiter for delete operations
+    const adaptiveRetryOptions = awsRateLimiter.getDeleteRetryOptions(
+      api.account, 
+      api.region, 
+      { operationType: 'delete' }
+    );
+
     const retryResult = await RetryManager.retry(deleteOperation, {
-      maxRetries: 8, // Increased for delete operations
-      baseDelay: 2000, // Increased base delay for delete operations
-      maxDelay: 60000, // Increased max delay for delete operations
-      jitter: true,
+      ...adaptiveRetryOptions,
       onRetry: (attempt, error, delay) => {
         // Don't log retry messages to avoid interfering with progress bars
         // The progress bar will handle the status updates
