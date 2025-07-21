@@ -14,6 +14,7 @@ A powerful CLI tool to create and manage multiple AWS API Gateways across multip
 - 🔍 **Role Discovery**: Automatically discover and test assumable IAM roles
 - 📊 **Progress Bars**: Visual progress indicators for long-running operations
 - 🔄 **Retry Mechanism**: Automatic handling of rate limiting (429 errors) with Retry-After header extraction
+- 📋 **Version Management**: Comprehensive versioning system with build information and environment detection
 
 ## Installation
 
@@ -387,6 +388,41 @@ The tool includes significant performance optimizations for bulk operations:
 | Bulk-Delete (20 APIs) | ~1-2 minutes | 90-95% |
 
 For detailed performance analysis, see [examples/performance-optimization.md](examples/performance-optimization.md).
+
+## Version Management
+
+The API Spawner includes a comprehensive versioning system:
+
+### Quick Version Check
+```bash
+# Display version number
+api-spawner --version
+# Output: 1.0.0
+
+# Display detailed version information
+api-spawner version
+```
+
+### Version Information
+- **Semantic Versioning**: Follows Major.Minor.Patch format
+- **Environment Detection**: Shows development/production status
+- **Build Information**: Optional build time and git commit
+- **System Details**: Node.js version, platform, architecture
+
+### Build Scripts
+```bash
+# Standard build
+yarn build
+
+# Full build with version information
+yarn build:full
+
+# Version utilities
+yarn version:info    # Show package.json version
+yarn version:check   # Show CLI version
+```
+
+For detailed versioning information, see [examples/versioning-system.md](examples/versioning-system.md).
 
 ## Development
 
