@@ -467,3 +467,11 @@ The tool is built with:
 ## License
 
 MIT License - see LICENSE file for details.
+
+### Recent Updates (v1.0.0)
+- Enhanced retry mechanism with Retry-After header extraction
+- Performance optimizations for bulk-delete operations
+- Single progress bar with integrated retry information
+- Improved error handling and user experience
+- Version management system
+- Fixed distribution logic for multi-account bulk operations

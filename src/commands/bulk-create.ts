@@ -167,12 +167,10 @@ export const bulkCreateCommand = new Command('bulk-create')
       // Calculate distribution
       const totalRegions = finalOptions.regions.length;
       const totalGateways = finalOptions.totalGateways;
-      const gatewaysPerRegion = Math.ceil(totalGateways / totalRegions);
 
       console.log(chalk.blue('\n📊 Distribution Plan:'));
       console.log(chalk.cyan(`  Total API Gateways: ${totalGateways}`));
       console.log(chalk.cyan(`  Regions: ${totalRegions}`));
-      console.log(chalk.cyan(`  Gateways per Region: ${gatewaysPerRegion}`));
       console.log(chalk.cyan(`  Mode: ${finalOptions.mode}`));
 
       let targets: BulkCreateTarget[] = [];
@@ -218,6 +216,13 @@ export const bulkCreateCommand = new Command('bulk-create')
 
         // Create targets for each account/region/gateway combination
         const uniqueAccountIds = [...new Set(testableRoles.map(role => role.accountId))];
+        const totalAccounts = uniqueAccountIds.length;
+        
+        // Calculate distribution: gateways per account per region
+        const gatewaysPerAccountPerRegion = Math.ceil(totalGateways / (totalAccounts * totalRegions));
+        
+        console.log(chalk.cyan(`  Accounts: ${totalAccounts}`));
+        console.log(chalk.cyan(`  Gateways per Account per Region: ${gatewaysPerAccountPerRegion}`));
 
         let gatewayIndex = 0;
         for (const accountId of uniqueAccountIds) {
@@ -225,7 +230,7 @@ export const bulkCreateCommand = new Command('bulk-create')
           const primaryRole = accountRoles[0]; // Use first available role for the account
 
           for (const region of finalOptions.regions) {
-            for (let i = 0; i < gatewaysPerRegion && gatewayIndex < totalGateways; i++) {
+            for (let i = 0; i < gatewaysPerAccountPerRegion && gatewayIndex < totalGateways; i++) {
               targets.push({
                 accountId,
                 roleArn: primaryRole.roleArn,
@@ -235,9 +240,7 @@ export const bulkCreateCommand = new Command('bulk-create')
               });
               gatewayIndex++;
             }
-            if (gatewayIndex >= totalGateways) break;
           }
-          if (gatewayIndex >= totalGateways) break;
         }
 
       } else {
@@ -284,13 +287,20 @@ export const bulkCreateCommand = new Command('bulk-create')
 
         console.log(chalk.green(`\nUsing ${accountAliases.length} configured accounts: ${accountAliases.join(', ')}`));
 
+        // Calculate distribution: gateways per account per region
+        const totalAccounts = accountAliases.length;
+        const gatewaysPerAccountPerRegion = Math.ceil(totalGateways / (totalAccounts * totalRegions));
+        
+        console.log(chalk.cyan(`  Accounts: ${totalAccounts}`));
+        console.log(chalk.cyan(`  Gateways per Account per Region: ${gatewaysPerAccountPerRegion}`));
+
         // Create targets for each account/region/gateway combination
         let gatewayIndex = 0;
         for (const alias of accountAliases) {
           const accountConfig = config.accounts![alias];
 
           for (const region of finalOptions.regions) {
-            for (let i = 0; i < gatewaysPerRegion && gatewayIndex < totalGateways; i++) {
+            for (let i = 0; i < gatewaysPerAccountPerRegion && gatewayIndex < totalGateways; i++) {
               targets.push({
                 accountId: accountConfig.accountId,
                 roleArn: accountConfig.roleArn,
@@ -300,9 +310,7 @@ export const bulkCreateCommand = new Command('bulk-create')
               });
               gatewayIndex++;
             }
-            if (gatewayIndex >= totalGateways) break;
           }
-          if (gatewayIndex >= totalGateways) break;
         }
       }
 

@@ -45,6 +45,7 @@ export const versionCommand = new Command('version')
       console.log(chalk.gray('  • Single progress bar with integrated retry information'));
       console.log(chalk.gray('  • Improved error handling and user experience'));
       console.log(chalk.gray('  • Version management system'));
+      console.log(chalk.gray('  • Fixed distribution logic for multi-account bulk operations'));
       
       console.log(chalk.blue('\nFor more information, visit:'));
       console.log(chalk.underline('https://github.com/your-username/api-spawner'));
