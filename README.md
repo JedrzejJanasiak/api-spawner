@@ -365,7 +365,7 @@ api-spawner bulk-delete \
 - **429 Errors**: Extracts `Retry-After` header and waits accordingly
 - **Other Errors**: Uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s max)
 - **Jitter**: Adds ±10% random variation to prevent synchronized retries
-- **Logging**: Shows retry attempts, wait times, and final status
+- **Integrated Display**: Retry information shown within progress bar status for clean output
 
 For detailed information, see [examples/retry-mechanism.md](examples/retry-mechanism.md).
 

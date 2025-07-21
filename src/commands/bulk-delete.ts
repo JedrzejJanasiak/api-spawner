@@ -401,7 +401,17 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             };
 
             const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id, { retryOptions });
+            await apiManager.deleteApiGateway(api.id, { 
+              retryOptions: {
+                ...retryOptions,
+                onRetry: (attempt, error, delay) => {
+                  const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                    error.$metadata?.httpHeaders?.['Retry-After'];
+                  const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                  progressBar.setStatus(`Retrying delete ${api.name} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
+                }
+              }
+            });
 
             progressBar.increment(`Deleted ${api.name}`);
             return { success: true, api };
@@ -447,7 +457,17 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             };
 
             const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id, { retryOptions });
+            await apiManager.deleteApiGateway(api.id, { 
+              retryOptions: {
+                ...retryOptions,
+                onRetry: (attempt, error, delay) => {
+                  const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                    error.$metadata?.httpHeaders?.['Retry-After'];
+                  const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                  progressBar.setStatus(`Retrying delete ${api.name} (${i + 1}/${apisToDelete.length}) - attempt ${attempt}/${retryOptions.maxRetries + 1} - ${delayInfo}`);
+                }
+              }
+            });
 
             results.push(api);
             progressBar.increment(`Deleted ${api.name}`);

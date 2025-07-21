@@ -116,11 +116,8 @@ export class ApiGatewayManager {
       maxDelay: 30000,
       jitter: true,
       onRetry: (attempt, error, delay) => {
-        const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
-                          error.$metadata?.httpHeaders?.['Retry-After'];
-        const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-        console.log(`⚠️  Create API Gateway failed (attempt ${attempt}/6): ${error.message || error}`);
-        console.log(`   Waiting ${delayInfo} before retry...`);
+        // Don't log retry messages to avoid interfering with progress bars
+        // The progress bar will handle the status updates
       },
       ...options.retryOptions
     });
@@ -186,11 +183,8 @@ export class ApiGatewayManager {
               maxDelay: 10000,
               jitter: true,
               onRetry: (attempt, error, delay) => {
-                const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
-                                  error.$metadata?.httpHeaders?.['Retry-After'];
-                const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-                console.log(`⚠️  List APIs in ${account}/${region} failed (attempt ${attempt}/4): ${error.message || error}`);
-                console.log(`   Waiting ${delayInfo} before retry...`);
+                // Don't log retry messages to avoid interfering with progress bars
+                // The progress bar will handle the status updates
               },
               ...options.retryOptions
             });
@@ -238,11 +232,8 @@ export class ApiGatewayManager {
       maxDelay: 30000,
       jitter: true,
       onRetry: (attempt, error, delay) => {
-        const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
-                          error.$metadata?.httpHeaders?.['Retry-After'];
-        const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-        console.log(`⚠️  Delete API Gateway failed (attempt ${attempt}/6): ${error.message || error}`);
-        console.log(`   Waiting ${delayInfo} before retry...`);
+        // Don't log retry messages to avoid interfering with progress bars
+        // The progress bar will handle the status updates
       },
       ...options.retryOptions
     });

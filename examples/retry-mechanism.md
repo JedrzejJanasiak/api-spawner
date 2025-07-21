@@ -60,40 +60,27 @@ When running interactively, you'll be prompted for retry settings:
 ? Maximum delay in milliseconds for retries: 30000
 ```
 
-## Retry Behavior Examples
+### Retry Behavior Examples
 
 ### Example 1: 429 Error with Retry-After Header
 
 ```
-Creating API Gateway my-api-123456789012-us-east-1-0...
-⚠️  Create API Gateway failed (attempt 1/6): TooManyRequestsException
-   Waiting Retry-After: 5s before retry...
-Creating API Gateway my-api-123456789012-us-east-1-0...
-✅ Created successfully
+Creating API Gateways (Sequential) |████████████████████| 100% | 20/20 | ETA: 0s | Retrying api-spawner-123456789012-us-east-1-0 (1/20) - attempt 2/6 - Retry-After: 5s
 ```
 
 ### Example 2: Network Error with Exponential Backoff
 
 ```
-Creating API Gateway my-api-123456789012-us-east-1-1...
-⚠️  Create API Gateway failed (attempt 1/6): NetworkError
-   Waiting Backoff: 1s before retry...
-Creating API Gateway my-api-123456789012-us-east-1-1...
-⚠️  Create API Gateway failed (attempt 2/6): NetworkError
-   Waiting Backoff: 2s before retry...
-Creating API Gateway my-api-123456789012-us-east-1-1...
-✅ Created successfully
+Creating API Gateways (Sequential) |████████████████████| 100% | 20/20 | ETA: 0s | Retrying api-spawner-123456789012-us-east-1-1 (2/20) - attempt 3/6 - Backoff: 2s
 ```
 
 ### Example 3: Server Error with Jitter
 
 ```
-Creating API Gateway my-api-123456789012-us-east-1-2...
-⚠️  Create API Gateway failed (attempt 1/6): InternalServerError
-   Waiting Backoff: 1.1s before retry... (includes jitter)
-Creating API Gateway my-api-123456789012-us-east-1-2...
-✅ Created successfully
+Creating API Gateways (Sequential) |████████████████████| 100% | 20/20 | ETA: 0s | Retrying api-spawner-123456789012-us-east-1-2 (3/20) - attempt 2/6 - Backoff: 1.1s
 ```
+
+**Note**: Retry information is now displayed within the progress bar status, providing a cleaner and more integrated user experience without cluttering the console output.
 
 ## Configuration Options
 

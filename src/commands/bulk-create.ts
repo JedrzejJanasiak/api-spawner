@@ -367,7 +367,15 @@ export const bulkCreateCommand = new Command('bulk-create')
               region: target.region,
               account: target.accountId,
               description: finalOptions.description,
-              retryOptions
+              retryOptions: {
+                ...retryOptions,
+                onRetry: (attempt, error, delay) => {
+                  const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                    error.$metadata?.httpHeaders?.['Retry-After'];
+                  const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                  progressBar.setStatus(`Retrying ${apiName} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
+                }
+              }
             });
 
             progressBar.increment(`Created ${apiName}`);
@@ -421,7 +429,15 @@ export const bulkCreateCommand = new Command('bulk-create')
               region: target.region,
               account: target.accountId,
               description: finalOptions.description,
-              retryOptions
+              retryOptions: {
+                ...retryOptions,
+                onRetry: (attempt, error, delay) => {
+                  const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                    error.$metadata?.httpHeaders?.['Retry-After'];
+                  const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                  progressBar.setStatus(`Retrying ${apiName} (${i + 1}/${targets.length}) - attempt ${attempt}/${retryOptions.maxRetries + 1} - ${delayInfo}`);
+                }
+              }
             });
 
             results.push(result);
