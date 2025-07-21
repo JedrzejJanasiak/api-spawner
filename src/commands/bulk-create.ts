@@ -5,6 +5,7 @@ import { createSpinner } from 'nanospinner';
 import { ApiGatewayManager } from '../services/api-gateway-manager';
 import { RoleDiscoveryService, DiscoveredRole } from '../services/role-discovery';
 import { ConfigManager } from '../services/config-manager';
+import { ProgressBar } from '../utils/progress-bar';
 
 export interface BulkCreateOptions {
   name?: string;
@@ -300,7 +301,12 @@ export const bulkCreateCommand = new Command('bulk-create')
       const errors: any[] = [];
 
       if (finalOptions.parallel) {
-        // Parallel creation
+        // Parallel creation with progress bar
+        const progressBar = new ProgressBar(targets.length, { 
+          title: 'Creating API Gateways (Parallel)',
+          hideCursor: true 
+        });
+
         const promises = targets.map(async (target, index) => {
           try {
             const apiName = `${finalOptions.name}-${target.accountId}-${target.region}-${target.gatewayIndex}`;
@@ -325,8 +331,10 @@ export const bulkCreateCommand = new Command('bulk-create')
               description: finalOptions.description
             });
 
+            progressBar.increment(`Created ${apiName}`);
             return { success: true, result, target };
           } catch (error) {
+            progressBar.increment(`Failed ${target.accountId}/${target.region}-${target.gatewayIndex}`);
             return { success: false, error, target };
           }
         });
@@ -340,15 +348,22 @@ export const bulkCreateCommand = new Command('bulk-create')
             errors.push(result);
           }
         });
+
+        progressBar.complete(`Created ${results.length} API Gateways successfully`);
       } else {
-        // Sequential creation
+        // Sequential creation with progress bar
+        const progressBar = new ProgressBar(targets.length, { 
+          title: 'Creating API Gateways (Sequential)',
+          hideCursor: true 
+        });
+
         for (let i = 0; i < targets.length; i++) {
           const target = targets[i];
-          createSpinnerInstance.update({ text: `Creating API Gateway ${i + 1}/${targets.length}: ${target.accountId}/${target.region}-${target.gatewayIndex}` });
+          const apiName = `${finalOptions.name}-${target.accountId}-${target.region}-${target.gatewayIndex}`;
+          
+          progressBar.setStatus(`Creating ${apiName} (${i + 1}/${targets.length})`);
 
           try {
-            const apiName = `${finalOptions.name}-${target.accountId}-${target.region}-${target.gatewayIndex}`;
-            
             // Create temporary config for this target
             const tempConfig = {
               accounts: {
@@ -370,13 +385,15 @@ export const bulkCreateCommand = new Command('bulk-create')
             });
 
             results.push(result);
+            progressBar.increment(`Created ${apiName}`);
           } catch (error) {
             errors.push({ error, target });
+            progressBar.increment(`Failed ${apiName}`);
           }
         }
-      }
 
-      createSpinnerInstance.success({ text: `Created ${results.length} API Gateways successfully` });
+        progressBar.complete(`Created ${results.length} API Gateways successfully`);
+      }
 
       // Display results
       if (results.length > 0) {

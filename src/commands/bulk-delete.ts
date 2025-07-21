@@ -5,6 +5,7 @@ import { createSpinner } from 'nanospinner';
 import { ApiGatewayManager } from '../services/api-gateway-manager';
 import { RoleDiscoveryService } from '../services/role-discovery';
 import { ConfigManager } from '../services/config-manager';
+import { ProgressBar } from '../utils/progress-bar';
 
 export interface BulkDeleteOptions {
   pattern?: string;
@@ -337,12 +338,16 @@ export const bulkDeleteCommand = new Command('bulk-delete')
       }
 
       // Delete API Gateways
-      const deleteSpinner = createSpinner('Deleting API Gateways...').start();
       const results: any[] = [];
       const errors: any[] = [];
 
       if (finalOptions.parallel) {
-        // Parallel deletion
+        // Parallel deletion with progress bar
+        const progressBar = new ProgressBar(apisToDelete.length, { 
+          title: 'Deleting API Gateways (Parallel)',
+          hideCursor: true 
+        });
+
         const promises = apisToDelete.map(async (api, index) => {
           try {
             // Create temporary config for this API
@@ -360,8 +365,10 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             const apiManager = new ApiGatewayManager(tempConfig);
             await apiManager.deleteApiGateway(api.id);
 
+            progressBar.increment(`Deleted ${api.name}`);
             return { success: true, api };
           } catch (error) {
+            progressBar.increment(`Failed ${api.name}`);
             return { success: false, error, api };
           }
         });
@@ -375,11 +382,18 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             errors.push(result);
           }
         });
+
+        progressBar.complete(`Deleted ${results.length} API Gateways successfully`);
       } else {
-        // Sequential deletion
+        // Sequential deletion with progress bar
+        const progressBar = new ProgressBar(apisToDelete.length, { 
+          title: 'Deleting API Gateways (Sequential)',
+          hideCursor: true 
+        });
+
         for (let i = 0; i < apisToDelete.length; i++) {
           const api = apisToDelete[i];
-          deleteSpinner.update({ text: `Deleting API Gateway ${i + 1}/${apisToDelete.length}: ${api.name}` });
+          progressBar.setStatus(`Deleting ${api.name} (${i + 1}/${apisToDelete.length})`);
 
           try {
             // Create temporary config for this API
@@ -398,13 +412,15 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             await apiManager.deleteApiGateway(api.id);
 
             results.push(api);
+            progressBar.increment(`Deleted ${api.name}`);
           } catch (error) {
             errors.push({ error, api });
+            progressBar.increment(`Failed ${api.name}`);
           }
         }
-      }
 
-      deleteSpinner.success({ text: `Deleted ${results.length} API Gateways successfully` });
+        progressBar.complete(`Deleted ${results.length} API Gateways successfully`);
+      }
 
       // Display results
       if (results.length > 0) {

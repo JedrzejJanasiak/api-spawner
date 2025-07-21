@@ -32,6 +32,7 @@
     "@aws-sdk/credential-providers": "^3.0.0",
     "aws-sdk": "^2.1400.0",
     "chalk": "^4.1.2",
+    "cli-progress": "^3.12.0",
     "commander": "^11.0.0",
     "dotenv": "^16.0.0",
     "inquirer": "8.2.4",
@@ -40,6 +41,7 @@
     "yaml": "^2.0.0"
   },
   "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
     "@types/inquirer": "^9.0.0",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",

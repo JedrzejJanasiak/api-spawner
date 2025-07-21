@@ -12,6 +12,7 @@ A powerful CLI tool to create and manage multiple AWS API Gateways across multip
 - 🔧 **Easy Configuration**: Simple YAML-based configuration
 - 🎯 **Bulk Creation**: Create multiple APIs across accounts and regions in one run
 - 🔍 **Role Discovery**: Automatically discover and test assumable IAM roles
+- 📊 **Progress Bars**: Visual progress indicators for long-running operations
 
 ## Installation
 

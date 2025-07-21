@@ -1,8 +1,9 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { createSpinner } from 'nanospinner';
-import { ApiGatewayManager } from '../services/api-gateway-manager';
+import { ApiGatewayManager, ApiGatewayInfo } from '../services/api-gateway-manager';
 import { ConfigManager } from '../services/config-manager';
+import { ProgressBar } from '../utils/progress-bar';
 
 export const listApiCommand = new Command('list')
   .description('List all API Gateways across accounts and regions')
@@ -18,12 +19,40 @@ export const listApiCommand = new Command('list')
         return;
       }
 
-      const spinner = createSpinner('Fetching API Gateways...').start();
-
       const apiManager = new ApiGatewayManager(config);
-      const apis = await apiManager.listApiGateways(options);
+      let apis: ApiGatewayInfo[] = [];
 
-      spinner.success({ text: `Found ${apis.length} API Gateway(s)` });
+      // Show progress bar only when fetching from multiple regions/accounts
+      const shouldShowProgress = !options.region && !options.account;
+      
+      if (shouldShowProgress) {
+        const totalAccounts = Object.keys(config.accounts).length;
+        const totalRegions = 8; // Default regions
+        const totalOperations = totalAccounts * totalRegions;
+        
+        const progressBar = new ProgressBar(totalOperations, { 
+          title: 'Fetching API Gateways',
+          hideCursor: true 
+        });
+
+        let completedOperations = 0;
+
+        // Override the listApiGateways method to track progress
+        const originalListApiGateways = apiManager.listApiGateways.bind(apiManager);
+        apiManager.listApiGateways = async (listOptions) => {
+          const result = await originalListApiGateways(listOptions);
+          completedOperations += totalRegions; // Approximate progress
+          progressBar.update(completedOperations, `Found ${result.length} API Gateways`);
+          return result;
+        };
+
+        apis = await apiManager.listApiGateways(options);
+        progressBar.complete(`Found ${apis.length} API Gateways`);
+      } else {
+        const spinner = createSpinner('Fetching API Gateways...').start();
+        apis = await apiManager.listApiGateways(options);
+        spinner.success({ text: `Found ${apis.length} API Gateway(s)` });
+      }
 
       if (apis.length === 0) {
         console.log(chalk.yellow('No API Gateways found.'));
@@ -42,13 +71,13 @@ export const listApiCommand = new Command('list')
         }
         acc[key].apis.push(api);
         return acc;
-      }, {} as Record<string, { account: string; region: string; apis: any[] }>);
+      }, {} as Record<string, { account: string; region: string; apis: ApiGatewayInfo[] }>);
 
-      Object.values(grouped).forEach(group => {
+      Object.values(grouped).forEach((group: { account: string; region: string; apis: ApiGatewayInfo[] }) => {
         console.log(chalk.blue(`\n${group.account} (${group.region})`));
         console.log(chalk.blue('─'.repeat(50)));
         
-        group.apis.forEach(api => {
+        group.apis.forEach((api: ApiGatewayInfo) => {
           console.log(chalk.green(`  ${api.name}`));
           console.log(chalk.gray(`    ID: ${api.id}`));
           console.log(chalk.gray(`    URL: ${api.url}`));
