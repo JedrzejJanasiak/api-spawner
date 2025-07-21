@@ -97,10 +97,16 @@ export class ApiGatewayManager {
     const client = this.createApiGatewayClient(credentials, options.region);
 
     const createOperation = async () => {
-      const command = new CreateRestApiCommand({
+      const commandData: any = {
         name: options.name,
-        description: options.description,
-      });
+      };
+
+      // Only include description if it's provided and not empty
+      if (options.description && options.description.trim()) {
+        commandData.description = options.description;
+      }
+
+      const command = new CreateRestApiCommand(commandData);
 
       const response = await client.send(command);
 

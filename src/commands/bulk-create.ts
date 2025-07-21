@@ -160,7 +160,7 @@ export const bulkCreateCommand = new Command('bulk-create')
 
       const finalOptions = {
         name: options.name || answers.name,
-        description: options.description || answers.description,
+        description: options.description || answers.description || '',
         regions: options.regions ? (typeof options.regions === 'string' ? options.regions.split(',') : options.regions) : answers.regions,
         accounts: options.accounts,
         rolePattern: options.rolePattern || answers.rolePattern,
@@ -383,7 +383,7 @@ export const bulkCreateCommand = new Command('bulk-create')
               name: apiName,
               region: target.region,
               account: target.accountId,
-              description: finalOptions.description,
+              ...(finalOptions.description && finalOptions.description.trim() && { description: finalOptions.description }),
               retryOptions: {
                 ...retryOptions,
                 onRetry: (attempt, error, delay) => {
@@ -445,14 +445,14 @@ export const bulkCreateCommand = new Command('bulk-create')
               name: apiName,
               region: target.region,
               account: target.accountId,
-              description: finalOptions.description,
+              ...(finalOptions.description && finalOptions.description.trim() && { description: finalOptions.description }),
               retryOptions: {
                 ...retryOptions,
                 onRetry: (attempt, error, delay) => {
                   const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
                                     error.$metadata?.httpHeaders?.['Retry-After'];
                   const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-                  progressBar.setStatus(`Retrying ${apiName} (${i + 1}/${targets.length}) - attempt ${attempt}/${retryOptions.maxRetries + 1} - ${delayInfo}`);
+                  progressBar.setStatus(`Retrying ${apiName} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
                 }
               }
             });
