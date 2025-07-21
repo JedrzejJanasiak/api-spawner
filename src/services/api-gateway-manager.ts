@@ -242,4 +242,36 @@ export class ApiGatewayManager {
       throw retryResult.error;
     }
   }
+
+  /**
+   * Delete an API Gateway with pre-fetched API information (optimized for bulk operations)
+   */
+  async deleteApiGatewayDirect(api: ApiGatewayInfo, options: DeleteApiOptions = {}): Promise<void> {
+    const credentials = await this.getCredentials(api.account);
+    const client = this.createApiGatewayClient(credentials, api.region);
+
+    const deleteOperation = async () => {
+      const command = new DeleteRestApiCommand({
+        restApiId: api.id,
+      });
+
+      await client.send(command);
+    };
+
+    const retryResult = await RetryManager.retry(deleteOperation, {
+      maxRetries: 8, // Increased for delete operations
+      baseDelay: 2000, // Increased base delay for delete operations
+      maxDelay: 60000, // Increased max delay for delete operations
+      jitter: true,
+      onRetry: (attempt, error, delay) => {
+        // Don't log retry messages to avoid interfering with progress bars
+        // The progress bar will handle the status updates
+      },
+      ...options.retryOptions
+    });
+
+    if (!retryResult.success) {
+      throw retryResult.error;
+    }
+  }
 } 

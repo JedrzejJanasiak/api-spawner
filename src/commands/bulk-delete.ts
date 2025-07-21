@@ -380,56 +380,70 @@ export const bulkDeleteCommand = new Command('bulk-delete')
       };
 
       if (finalOptions.parallel) {
-        // Parallel deletion with progress bar
+        // Parallel deletion with progress bar and batching to reduce rate limiting
         const progressBar = new ProgressBar(apisToDelete.length, { 
           title: 'Deleting API Gateways (Parallel)',
           hideCursor: true 
         });
 
-        const promises = apisToDelete.map(async (api, index) => {
-          try {
-            // Create temporary config for this API
-            const tempConfig = {
-              accounts: {
-                [api.account]: {
-                  accountId: api.account,
-                  roleArn: discoveredRoles.find(r => r.accountId === api.account)?.roleArn || '',
-                  externalId: finalOptions.externalId,
-                  sessionName: 'api-spawner-bulk-delete-session'
+        // Process in batches to reduce rate limiting
+        const batchSize = 3; // Reduced concurrency for delete operations
+        const results: any[] = [];
+        const errors: any[] = [];
+
+        for (let i = 0; i < apisToDelete.length; i += batchSize) {
+          const batch = apisToDelete.slice(i, i + batchSize);
+          
+          const batchPromises = batch.map(async (api, batchIndex) => {
+            try {
+              // Create temporary config for this API
+              const tempConfig = {
+                accounts: {
+                  [api.account]: {
+                    accountId: api.account,
+                    roleArn: discoveredRoles.find(r => r.accountId === api.account)?.roleArn || '',
+                    externalId: finalOptions.externalId,
+                    sessionName: 'api-spawner-bulk-delete-session'
+                  }
                 }
-              }
-            };
+              };
 
-            const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id, { 
-              retryOptions: {
-                ...retryOptions,
-                onRetry: (attempt, error, delay) => {
-                  const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
-                                    error.$metadata?.httpHeaders?.['Retry-After'];
-                  const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
-                  progressBar.setStatus(`Retrying delete ${api.name} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
+              const apiManager = new ApiGatewayManager(tempConfig);
+              await apiManager.deleteApiGatewayDirect(api, { 
+                retryOptions: {
+                  ...retryOptions,
+                  onRetry: (attempt, error, delay) => {
+                    const retryAfter = error.$metadata?.httpHeaders?.['retry-after'] || 
+                                      error.$metadata?.httpHeaders?.['Retry-After'];
+                    const delayInfo = retryAfter ? `Retry-After: ${Math.round(parseInt(retryAfter) * 1000 / 1000)}s` : `Backoff: ${Math.round(delay / 1000)}s`;
+                    progressBar.setStatus(`Retrying delete ${api.name} (attempt ${attempt}/${retryOptions.maxRetries + 1}) - ${delayInfo}`);
+                  }
                 }
-              }
-            });
+              });
 
-            progressBar.increment(`Deleted ${api.name}`);
-            return { success: true, api };
-          } catch (error) {
-            progressBar.increment(`Failed ${api.name}`);
-            return { success: false, error, api };
-          }
-        });
+              progressBar.increment(`Deleted ${api.name}`);
+              return { success: true, api };
+            } catch (error) {
+              progressBar.increment(`Failed ${api.name}`);
+              return { success: false, error, api };
+            }
+          });
 
-        const parallelResults = await Promise.all(promises);
-        
-        parallelResults.forEach(result => {
-          if (result.success) {
-            results.push(result.api);
-          } else {
-            errors.push(result);
+          const batchResults = await Promise.all(batchPromises);
+          
+          batchResults.forEach(result => {
+            if (result.success) {
+              results.push(result.api);
+            } else {
+              errors.push(result);
+            }
+          });
+
+          // Add delay between batches to reduce rate limiting
+          if (i + batchSize < apisToDelete.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-        });
+        }
 
         progressBar.complete(`Deleted ${results.length} API Gateways successfully`);
       } else {
@@ -457,7 +471,7 @@ export const bulkDeleteCommand = new Command('bulk-delete')
             };
 
             const apiManager = new ApiGatewayManager(tempConfig);
-            await apiManager.deleteApiGateway(api.id, { 
+            await apiManager.deleteApiGatewayDirect(api, { 
               retryOptions: {
                 ...retryOptions,
                 onRetry: (attempt, error, delay) => {
@@ -471,6 +485,11 @@ export const bulkDeleteCommand = new Command('bulk-delete')
 
             results.push(api);
             progressBar.increment(`Deleted ${api.name}`);
+            
+            // Add small delay between delete operations to reduce rate limiting
+            if (i < apisToDelete.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
           } catch (error) {
             errors.push({ error, api });
             progressBar.increment(`Failed ${api.name}`);
